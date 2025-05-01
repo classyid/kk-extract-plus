@@ -16,7 +16,8 @@ Aplikasi web berbasis Google Apps Script untuk ekstraksi data kartu keluarga (KK
 
 ## 🖼️ Screenshot
 
-![Screenshot KK-Extract Plus](/path/to/screenshot.png)
+![Screenshot KK-Extract Plus](https://blog.classy.id/upload/gambar_berita/e506c389d9634f233108026e6911b8ea_20250501114012.png)
+![Screenshot KK-Extract Plus](https://blog.classy.id/upload/gambar_berita/e506c389d9634f233108026e6911b8ea_20250501114112.png)
 
 ## 🧩 Komponen Utama
 
