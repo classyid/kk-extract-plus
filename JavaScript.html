@@ -1,0 +1,1228 @@
+<script>
+// Objek global untuk menyimpan data aplikasi
+const appData = {
+  activeTab: 'home',
+  currentKkData: null,
+  currentImageData: null,
+  charts: {
+    marriage: null,
+    religion: null,
+    occupation: null,
+    district: null
+  },
+  // Tambahkan properti untuk data sosial
+  dataSosial: {
+    options: null,
+    nomorKK: null,
+    namaKepala: null,
+    existingData: null
+  }
+};
+
+// ==============================================
+// INISIALISASI APLIKASI
+// ==============================================
+
+// Fungsi yang dijalankan saat dokumen siap
+document.addEventListener('DOMContentLoaded', function() {
+  // Siapkan tab aktif
+  showTab('home');
+  
+  // Setup event handlers
+  setupFileInput();
+  setupDropZone();
+  setupButtons();
+  
+  // Periksa dan muat pengaturan yang disimpan
+  loadSavedSettings();
+  
+  // Toast untuk menampilkan pesan bahwa aplikasi siap
+  showToast('Aplikasi siap digunakan', 'info');
+});
+
+// ==============================================
+// NAVIGASI TAB
+// ==============================================
+
+// Fungsi untuk menampilkan tab tertentu
+function showTab(tabId) {
+  // Sembunyikan semua tab
+  const tabContents = document.querySelectorAll('.tab-content');
+  tabContents.forEach(tab => {
+    tab.classList.remove('active');
+    tab.classList.add('hidden');
+  });
+  
+  // Tampilkan tab yang dipilih
+  const selectedTab = document.getElementById(tabId);
+  if (selectedTab) {
+    selectedTab.classList.remove('hidden');
+    selectedTab.classList.add('active');
+    appData.activeTab = tabId;
+    
+    // Perilaku khusus untuk tab tertentu
+    if (tabId === 'stats') {
+      loadStatistics();
+    }
+  }
+}
+
+// ==============================================
+// PENGATURAN APLIKASI
+// ==============================================
+
+// Menyimpan ID spreadsheet ke script properties
+function saveSpreadsheetId() {
+  const spreadsheetId = document.getElementById('spreadsheetId').value.trim();
+  
+  if (!spreadsheetId) {
+    showToast('ID Spreadsheet tidak boleh kosong', 'error');
+    return;
+  }
+  
+  // Validasi format ID spreadsheet secara sederhana
+  if (!/^[a-zA-Z0-9_-]{10,}$/.test(spreadsheetId)) {
+    showToast('Format ID Spreadsheet tidak valid', 'error');
+    return;
+  }
+  
+  // Tampilkan loading
+  const saveBtn = document.getElementById('saveSettingsBtn');
+  const originalText = saveBtn.innerHTML;
+  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+  saveBtn.disabled = true;
+  
+  // Panggil fungsi server untuk menyimpan ID
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result) {
+        showToast('Pengaturan berhasil disimpan', 'success');
+      } else {
+        showToast('Gagal menyimpan pengaturan', 'error');
+      }
+      
+      // Kembalikan tombol ke keadaan normal
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+    })
+    .withFailureHandler(function(error) {
+      showToast('Error: ' + error.message, 'error');
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+    })
+    .setSpreadsheetId(spreadsheetId);
+}
+
+// Menyimpan URL API
+function saveApiUrl() {
+  const apiUrl = document.getElementById('apiUrl').value.trim();
+  
+  if (!apiUrl) {
+    showToast('URL API tidak boleh kosong', 'error');
+    return;
+  }
+  
+  // Validasi format URL secara sederhana
+  if (!/^https?:\/\/.+/.test(apiUrl)) {
+    showToast('Format URL API tidak valid, harus dimulai dengan http:// atau https://', 'error');
+    return;
+  }
+  
+  // Tampilkan loading
+  const saveBtn = document.getElementById('saveApiBtn');
+  const originalText = saveBtn.innerHTML;
+  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+  saveBtn.disabled = true;
+  
+  // Panggil fungsi server untuk menyimpan URL API
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result) {
+        showToast('URL API berhasil disimpan', 'success');
+      } else {
+        showToast('Gagal menyimpan URL API', 'error');
+      }
+      
+      // Kembalikan tombol ke keadaan normal
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+    })
+    .withFailureHandler(function(error) {
+      showToast('Error: ' + error.message, 'error');
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+    })
+    .updateApiUrl(apiUrl);
+}
+
+// Memuat pengaturan tersimpan
+function loadSavedSettings() {
+  // Muat ID Spreadsheet
+  google.script.run
+    .withSuccessHandler(function(spreadsheetId) {
+      if (spreadsheetId) {
+        document.getElementById('spreadsheetId').value = spreadsheetId;
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('Gagal memuat ID spreadsheet:', error);
+    })
+    .getSpreadsheetId();
+    
+  // Muat URL API
+  google.script.run
+    .withSuccessHandler(function(config) {
+      if (config && config.url) {
+        document.getElementById('apiUrl').value = config.url;
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('Gagal memuat URL API:', error);
+    })
+    .getApiConfig();
+}
+
+// ==============================================
+// UPLOAD & PROSES KARTU KELUARGA
+// ==============================================
+
+// Setup input file untuk unggah Kartu Keluarga
+function setupFileInput() {
+  const fileInput = document.getElementById('fileInput');
+  fileInput.addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    
+    if (file) {
+      processSelectedFile(file);
+    }
+  });
+}
+
+// Setup drop zone untuk drag & drop file Kartu Keluarga
+function setupDropZone() {
+  const dropZone = document.getElementById('dropZone');
+  
+  // Prevent default drag behaviors
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, preventDefaults, false);
+    document.body.addEventListener(eventName, preventDefaults, false);
+  });
+  
+  // Highlight drop zone when item is dragged over it
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, highlight, false);
+  });
+  
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, unhighlight, false);
+  });
+  
+  // Handle dropped files
+  dropZone.addEventListener('drop', handleDrop, false);
+  
+  function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  
+  function highlight() {
+    dropZone.classList.add('drag-over');
+  }
+  
+  function unhighlight() {
+    dropZone.classList.remove('drag-over');
+  }
+  
+  function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const file = dt.files[0];
+    
+    if (file) {
+      processSelectedFile(file);
+    }
+  }
+}
+
+// Proses file yang dipilih
+function processSelectedFile(file) {
+  // Validasi ukuran dan tipe file
+  if (file.size > 5 * 1024 * 1024) { // 5MB
+    showToast('Ukuran file melebihi batas 5MB', 'error');
+    return;
+  }
+  
+  if (!file.type.match('image.*')) {
+    showToast('File harus berupa gambar (JPG, PNG)', 'error');
+    return;
+  }
+  
+  // Sembunyikan area unggah dan tampilkan progress
+  document.getElementById('dropZone').style.display = 'none';
+  document.getElementById('progressContainer').classList.remove('hidden');
+  document.getElementById('resultContainer').classList.add('hidden');
+  
+  // Baca file sebagai base64
+  const reader = new FileReader();
+  reader.onloadstart = function() {
+    updateProgress(10, 'Membaca file...');
+  };
+  
+  reader.onprogress = function(e) {
+    if (e.lengthComputable) {
+      const percentLoaded = Math.round((e.loaded / e.total) * 50); // Max 50% for load
+      updateProgress(percentLoaded, 'Membaca file...');
+    }
+  };
+  
+  reader.onload = function(e) {
+    updateProgress(50, 'File berhasil dibaca, memproses Kartu Keluarga...');
+    
+    // Get base64 data (remove data URL prefix)
+    const base64Data = e.target.result.split(',')[1];
+    appData.currentImageData = e.target.result; // Simpan untuk ditampilkan nanti
+    
+    // Unggah dan proses file
+    uploadAndProcessKK(base64Data, file.name, file.type);
+  };
+  
+  reader.onerror = function() {
+    showToast('Gagal membaca file', 'error');
+    resetUploadArea();
+  };
+  
+  reader.readAsDataURL(file);
+}
+
+// Mengunggah dan memproses Kartu Keluarga
+function uploadAndProcessKK(fileData, fileName, mimeType) {
+  updateProgress(60, 'Mengirim data ke server...');
+  
+  // Siapkan data untuk dikirim ke server
+  const formData = {
+    fileData: fileData,
+    fileName: fileName,
+    mimeType: mimeType
+  };
+  
+  // Kirim data ke server
+  google.script.run
+    .withSuccessHandler(function(response) {
+      updateProgress(100, 'Proses selesai!');
+      
+      // Tunggu sebentar untuk menampilkan hasil
+      setTimeout(function() {
+        document.getElementById('progressContainer').classList.add('hidden');
+        displayKkResult(response);
+      }, 500);
+    })
+    .withFailureHandler(function(error) {
+      showToast('Error: ' + error.message, 'error');
+      resetUploadArea();
+    })
+    .processKK(formData);
+}
+
+// Update progress bar
+function updateProgress(percent, message) {
+  document.getElementById('progressBar').style.width = percent + '%';
+  document.getElementById('progressText').textContent = message;
+}
+
+// Reset area unggah
+function resetUploadArea() {
+  document.getElementById('progressContainer').classList.add('hidden');
+  document.getElementById('dropZone').style.display = 'block';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('progressText').textContent = 'Mengunggah file...';
+}
+
+// Menampilkan hasil ekstraksi Kartu Keluarga
+function displayKkResult(response) {
+  document.getElementById('resultContainer').classList.remove('hidden');
+  
+  // Tampilkan gambar hasil
+  document.getElementById('resultImage').src = appData.currentImageData;
+  
+  // Cek apakah dokumen adalah Kartu Keluarga
+  if (response.status === 'success' && response.data.analysis.parsed.status === 'success') {
+    // Sembunyikan pesan error
+    document.getElementById('errorMessage').classList.add('hidden');
+    document.getElementById('kkData').classList.remove('hidden');
+    
+    // Simpan data KK untuk referensi
+    appData.currentKkData = response.data.analysis.parsed;
+    const kkData = response.data.analysis.parsed;
+    
+    // Isi informasi nomor KK dan tanggal penerbitan
+    document.getElementById('result-nomor_kk').textContent = kkData.nomor_kk || '-';
+    document.getElementById('result-tanggal_penerbitan').textContent = kkData.tanggal_penerbitan || '-';
+    
+    // Isi data kepala keluarga
+    if (kkData.kepala_keluarga) {
+      document.getElementById('kepalaKeluargaSection').classList.remove('hidden');
+      document.getElementById('result-kepala-nama').textContent = kkData.kepala_keluarga.nama || '-';
+      document.getElementById('result-kepala-nik').textContent = kkData.kepala_keluarga.nik || '-';
+      
+      // Cari data jenis kelamin, agama, dan status perkawinan dari anggota keluarga
+      let kepalaData = null;
+      if (kkData.anggota_keluarga && kkData.anggota_keluarga.length > 0) {
+        kepalaData = kkData.anggota_keluarga.find(anggota => 
+          anggota.nama === kkData.kepala_keluarga.nama || 
+          anggota.nik === kkData.kepala_keluarga.nik);
+      }
+      
+      // Status hubungan kepala keluarga
+      let kepalaStatus = null;
+      if (kkData.status_hubungan && kkData.status_hubungan.length > 0) {
+        kepalaStatus = kkData.status_hubungan.find(status => 
+          status.nama === kkData.kepala_keluarga.nama);
+      }
+      
+      document.getElementById('result-kepala-jk').textContent = kepalaData?.jenis_kelamin || '-';
+      
+      // Gabungkan tempat dan tanggal lahir jika ada
+      let ttl = '';
+      if (kepalaData?.tempat_lahir) {
+        ttl += kepalaData.tempat_lahir;
+      }
+      if (kepalaData?.tanggal_lahir) {
+        ttl += ttl ? ', ' + kepalaData.tanggal_lahir : kepalaData.tanggal_lahir;
+      }
+      document.getElementById('result-kepala-ttl').textContent = ttl || '-';
+      
+      // Tambahkan agama dan status perkawinan
+      document.getElementById('result-kepala-agama').textContent = kepalaData?.agama || '-';
+      document.getElementById('result-kepala-status_perkawinan').textContent = 
+        kepalaStatus?.status_pernikahan || kepalaStatus?.status_perkawinan || '-';
+    } else {
+      document.getElementById('kepalaKeluargaSection').classList.add('hidden');
+    }
+    
+    // Isi data anggota keluarga
+    const anggotaTable = document.getElementById('anggotaKeluargaTable');
+    anggotaTable.innerHTML = '';
+    
+    if (kkData.anggota_keluarga && kkData.anggota_keluarga.length > 0 && 
+        kkData.status_hubungan && kkData.status_hubungan.length > 0) {
+      document.getElementById('anggotaKeluargaSection').classList.remove('hidden');
+      
+      kkData.anggota_keluarga.forEach((anggota, index) => {
+        // Cari status hubungan untuk anggota ini
+        const statusAnggota = kkData.status_hubungan.find(status => status.nama === anggota.nama);
+        const hubungan = statusAnggota ? statusAnggota.hubungan_keluarga : '-';
+        
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="py-2 px-3 border-b">${anggota.nik || '-'}</td>
+          <td class="py-2 px-3 border-b">${anggota.nama || '-'}</td>
+          <td class="py-2 px-3 border-b">${anggota.jenis_kelamin || '-'}</td>
+          <td class="py-2 px-3 border-b">${hubungan}</td>
+        `;
+        anggotaTable.appendChild(row);
+      });
+    } else {
+      document.getElementById('anggotaKeluargaSection').classList.add('hidden');
+    }
+    
+    // Isi data alamat
+    document.getElementById('result-alamat').textContent = kkData.kepala_keluarga.alamat || '-';
+    document.getElementById('result-rt-rw').textContent = kkData.kepala_keluarga.rt_rw || '-';
+    document.getElementById('result-desa').textContent = kkData.kepala_keluarga.desa_kelurahan || '-';
+    document.getElementById('result-kecamatan').textContent = kkData.kepala_keluarga.kecamatan || '-';
+    document.getElementById('result-kabupaten').textContent = kkData.kepala_keluarga.kabupaten_kota || '-';
+    document.getElementById('result-provinsi').textContent = kkData.kepala_keluarga.provinsi || '-';
+    document.getElementById('result-kodepos').textContent = kkData.kepala_keluarga.kode_pos || '';
+    
+    // Tampilkan toast sukses
+    showToast('Data Kartu Keluarga berhasil diekstrak', 'success');
+    
+    // Inisialisasi form data sosial jika ada
+    if (response.data.dataSosialForm) {
+      initDataSosialForm(response.data.dataSosialForm);
+    }
+  } else {
+    // Tampilkan pesan error
+    document.getElementById('errorMessage').classList.remove('hidden');
+    document.getElementById('kkData').classList.add('hidden');
+    
+    if (response.status === 'success' && response.data.analysis.parsed.status === 'not_kk') {
+      document.getElementById('errorText').textContent = 'Dokumen yang diunggah bukan merupakan Kartu Keluarga.';
+    } else {
+      document.getElementById('errorText').textContent = response.message || 'Terjadi kesalahan saat memproses Kartu Keluarga.';
+    }
+    
+    // Tampilkan toast error
+    showToast('Gagal mengekstrak data Kartu Keluarga', 'error');
+  }
+}
+
+// ==============================================
+// DATA SOSIAL TAMBAHAN
+// ==============================================
+
+// Inisialisasi form data sosial
+function initDataSosialForm(dataSosialForm) {
+  // Simpan informasi data sosial ke appData
+  appData.dataSosial.options = dataSosialForm.options;
+  appData.dataSosial.nomorKK = dataSosialForm.nomorKK;
+  appData.dataSosial.namaKepala = dataSosialForm.namaKepala;
+  
+  // Buat radio button untuk penerima bantuan
+  const penerimaBantuanContainer = document.getElementById('penerimaBantuan-options');
+  penerimaBantuanContainer.innerHTML = '';
+  
+  if (dataSosialForm.options.PENERIMA_BANTUAN) {
+    dataSosialForm.options.PENERIMA_BANTUAN.forEach((option, index) => {
+      const radioId = `penerimaBantuan-${option.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      const radioContainer = document.createElement('div');
+      radioContainer.className = 'flex items-center';
+      radioContainer.innerHTML = `
+        <input type="radio" id="${radioId}" name="penerimaBantuan" value="${option}" class="mr-2">
+        <label for="${radioId}" class="text-sm">${option}</label>
+      `;
+      
+      penerimaBantuanContainer.appendChild(radioContainer);
+    });
+  }
+  
+  // Isi select sumber air
+  const sumberAirSelect = document.getElementById('sumberAir');
+  sumberAirSelect.innerHTML = '<option value="">-- Pilih Sumber Air --</option>';
+  
+  if (dataSosialForm.options.SUMBER_AIR) {
+    dataSosialForm.options.SUMBER_AIR.forEach(option => {
+      const optionEl = document.createElement('option');
+      optionEl.value = option;
+      optionEl.textContent = option;
+      sumberAirSelect.appendChild(optionEl);
+    });
+  }
+  
+  // Buat radio button untuk fasilitas MCK
+  const fasilitasMckContainer = document.getElementById('fasilitasMck-options');
+  fasilitasMckContainer.innerHTML = '';
+  
+  if (dataSosialForm.options.FASILITAS_MCK) {
+    dataSosialForm.options.FASILITAS_MCK.forEach((option, index) => {
+      const radioId = `fasilitasMck-${option.toLowerCase().replace(/\s+/g, '-')}`;
+      
+      const radioContainer = document.createElement('div');
+      radioContainer.className = 'flex items-center';
+      radioContainer.innerHTML = `
+        <input type="radio" id="${radioId}" name="fasilitasMck" value="${option}" class="mr-2">
+        <label for="${radioId}" class="text-sm">${option}</label>
+      `;
+      
+      fasilitasMckContainer.appendChild(radioContainer);
+    });
+  }
+  
+  // Isi select penggunaan jamban
+  const penggunaanJambanSelect = document.getElementById('penggunaanJamban');
+  penggunaanJambanSelect.innerHTML = '<option value="">-- Pilih Penggunaan Jamban --</option>';
+  
+  if (dataSosialForm.options.PENGGUNAAN_JAMBAN) {
+    dataSosialForm.options.PENGGUNAAN_JAMBAN.forEach(option => {
+      const optionEl = document.createElement('option');
+      optionEl.value = option;
+      optionEl.textContent = option;
+      penggunaanJambanSelect.appendChild(optionEl);
+    });
+  }
+  
+  // Isi select sumber listrik
+  const sumberListrikSelect = document.getElementById('sumberListrik');
+  sumberListrikSelect.innerHTML = '<option value="">-- Pilih Sumber Listrik --</option>';
+  
+  if (dataSosialForm.options.SUMBER_LISTRIK) {
+    dataSosialForm.options.SUMBER_LISTRIK.forEach(option => {
+      const optionEl = document.createElement('option');
+      optionEl.value = option;
+      optionEl.textContent = option;
+      sumberListrikSelect.appendChild(optionEl);
+    });
+  }
+  
+  // Isi select jenis rumah
+  const jenisRumahSelect = document.getElementById('jenisRumah');
+  jenisRumahSelect.innerHTML = '<option value="">-- Pilih Jenis Rumah --</option>';
+  
+  if (dataSosialForm.options.JENIS_RUMAH) {
+    dataSosialForm.options.JENIS_RUMAH.forEach(option => {
+      const optionEl = document.createElement('option');
+      optionEl.value = option;
+      optionEl.textContent = option;
+      jenisRumahSelect.appendChild(optionEl);
+    });
+  }
+  
+  // Periksa apakah sudah ada data sosial yang tersimpan
+  loadSavedDataSosial(dataSosialForm.nomorKK);
+}
+
+// Muat data sosial yang sudah tersimpan
+function loadSavedDataSosial(nomorKK) {
+  // Panggil fungsi server untuk mendapatkan data sosial
+  google.script.run
+    .withSuccessHandler(function(response) {
+      if (response.status === "success" && response.data) {
+        // Simpan data yang ada
+        appData.dataSosial.existingData = response.data;
+        
+        // Isi form dengan data yang sudah ada
+        fillDataSosialForm(response.data);
+        
+        // Tampilkan pesan bahwa data sudah ada
+        const statusDiv = document.getElementById('dataSosialStatus');
+        statusDiv.innerHTML = `
+          <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4">
+            <p class="font-bold">Info</p>
+            <p>Data sosial untuk KK ini sudah ada dan dimuat ke formulir.</p>
+          </div>
+        `;
+        statusDiv.classList.remove('hidden');
+      } else {
+        // Jika belum ada data, tampilkan pesan
+        const statusDiv = document.getElementById('dataSosialStatus');
+        statusDiv.innerHTML = `
+          <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4">
+            <p class="font-bold">Perhatian</p>
+            <p>Data sosial untuk KK ini belum ada. Silakan isi formulir di atas.</p>
+          </div>
+        `;
+        statusDiv.classList.remove('hidden');
+      }
+    })
+    .withFailureHandler(function(error) {
+      console.error('Error loading saved data sosial:', error);
+    })
+    .getDataSosial(nomorKK);
+}
+
+// Mengisi form data sosial dengan data yang sudah ada
+function fillDataSosialForm(data) {
+  // Isi radio button penerima bantuan
+  if (data['Penerima Bantuan/JKN/KIS']) {
+    const radioButtons = document.querySelectorAll('input[name="penerimaBantuan"]');
+    radioButtons.forEach(radio => {
+      if (radio.value === data['Penerima Bantuan/JKN/KIS']) {
+        radio.checked = true;
+      }
+    });
+  }
+  
+  // Isi select sumber air
+  if (data['Sumber Air Bersih']) {
+    document.getElementById('sumberAir').value = data['Sumber Air Bersih'];
+  }
+  
+  // Isi radio button fasilitas MCK
+  if (data['Fasilitas MCK/RTLH']) {
+    const radioButtons = document.querySelectorAll('input[name="fasilitasMck"]');
+    radioButtons.forEach(radio => {
+      if (radio.value === data['Fasilitas MCK/RTLH']) {
+        radio.checked = true;
+      }
+    });
+  }
+  
+  // Isi select penggunaan jamban
+  if (data['Penggunaan Jamban']) {
+    document.getElementById('penggunaanJamban').value = data['Penggunaan Jamban'];
+  }
+  
+  // Isi select sumber listrik
+  if (data['Sumber Listrik']) {
+    document.getElementById('sumberListrik').value = data['Sumber Listrik'];
+  }
+  
+  // Isi select jenis rumah
+  if (data['Jenis Rumah']) {
+    document.getElementById('jenisRumah').value = data['Jenis Rumah'];
+  }
+  
+  // Isi checkbox disabilitas
+  if (data['Pemeriksaan Disabilitas']) {
+    const disabilitasValues = data['Pemeriksaan Disabilitas'].split(',').map(item => item.trim());
+    
+    const checkboxes = document.querySelectorAll('.disabilitas-option');
+    checkboxes.forEach(checkbox => {
+      if (disabilitasValues.includes(checkbox.value)) {
+        checkbox.checked = true;
+      }
+    });
+  }
+}
+
+// Menyimpan data sosial
+function saveDataSosial() {
+  // Validasi form
+  let isValid = true;
+  let errorMessages = [];
+  
+  // Get penerima bantuan value
+  let penerimaBantuan = '';
+  const penerimaBantuanOptions = document.querySelectorAll('input[name="penerimaBantuan"]');
+  let penerimaBantuanSelected = false;
+  
+  penerimaBantuanOptions.forEach(option => {
+    if (option.checked) {
+      penerimaBantuan = option.value;
+      penerimaBantuanSelected = true;
+    }
+  });
+  
+  if (!penerimaBantuanSelected) {
+    isValid = false;
+    errorMessages.push('Pilih status Penerima Bantuan/JKN/KIS');
+  }
+  
+  // Get sumber air value
+  const sumberAir = document.getElementById('sumberAir').value;
+  if (!sumberAir) {
+    isValid = false;
+    errorMessages.push('Pilih Sumber Air Bersih');
+  }
+  
+  // Get fasilitas MCK value
+  let fasilitasMck = '';
+  const fasilitasMckOptions = document.querySelectorAll('input[name="fasilitasMck"]');
+  let fasilitasMckSelected = false;
+  
+  fasilitasMckOptions.forEach(option => {
+    if (option.checked) {
+      fasilitasMck = option.value;
+      fasilitasMckSelected = true;
+    }
+  });
+  
+  if (!fasilitasMckSelected) {
+    isValid = false;
+    errorMessages.push('Pilih status Fasilitas MCK/RTLH');
+  }
+  
+  // Get penggunaan jamban value
+  const penggunaanJamban = document.getElementById('penggunaanJamban').value;
+  if (!penggunaanJamban) {
+    isValid = false;
+    errorMessages.push('Pilih Penggunaan Jamban');
+  }
+  
+  // Get sumber listrik value
+  const sumberListrik = document.getElementById('sumberListrik').value;
+  if (!sumberListrik) {
+    isValid = false;
+    errorMessages.push('Pilih Sumber Listrik');
+  }
+  
+  // Get jenis rumah value
+  const jenisRumah = document.getElementById('jenisRumah').value;
+  if (!jenisRumah) {
+    isValid = false;
+    errorMessages.push('Pilih Jenis Rumah');
+  }
+  
+  // Get pemeriksaan disabilitas values
+  const disabilitasCheckboxes = document.querySelectorAll('.disabilitas-option:checked');
+  const disabilitasValues = Array.from(disabilitasCheckboxes).map(checkbox => checkbox.value);
+  const pemeriksaanDisabilitas = disabilitasValues.join(', ');
+  
+  // Jika ada error, tampilkan pesan
+  if (!isValid) {
+    const errorMessage = 'Mohon lengkapi: ' + errorMessages.join(', ');
+    showToast(errorMessage, 'error');
+    return;
+  }
+  
+  // Tampilkan loading pada tombol
+  const saveBtn = document.getElementById('saveDataSosialBtn');
+  const originalText = saveBtn.innerHTML;
+  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+  saveBtn.disabled = true;
+  
+  // Siapkan data untuk dikirim ke server
+  const formData = {
+    nomorKK: appData.dataSosial.nomorKK,
+    namaKepala: appData.dataSosial.namaKepala,
+    penerimaBantuan,
+    sumberAir,
+    fasilitasMck,
+    penggunaanJamban,
+    sumberListrik,
+    jenisRumah,
+    pemeriksaanDisabilitas
+  };
+  
+  // Panggil fungsi server untuk menyimpan data
+  google.script.run
+    .withSuccessHandler(function(response) {
+      // Kembalikan tombol ke keadaan normal
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+      
+      if (response.status === 'success') {
+        showToast('Data sosial berhasil disimpan', 'success');
+        
+        // Update status
+        const statusDiv = document.getElementById('dataSosialStatus');
+        statusDiv.innerHTML = `
+          <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4">
+            <p class="font-bold">Berhasil</p>
+            <p>Data sosial untuk KK ini berhasil disimpan.</p>
+          </div>
+        `;
+        statusDiv.classList.remove('hidden');
+        
+        // Update data yang tersimpan
+        loadSavedDataSosial(appData.dataSosial.nomorKK);
+      } else {
+        showToast('Gagal menyimpan data: ' + response.message, 'error');
+      }
+    })
+    .withFailureHandler(function(error) {
+      saveBtn.innerHTML = originalText;
+      saveBtn.disabled = false;
+      showToast('Error: ' + error.message, 'error');
+    })
+    .saveDataSosial(formData);
+}
+
+// ==============================================
+// DATA SOSIAL BERDASARKAN GAMBAR KK PEDESA
+// ==============================================
+
+// Helper untuk mendapatkan nilai dari radio button
+function getRadioValue(name) {
+  const radios = document.querySelectorAll(`input[name="${name}"]:checked`);
+  return radios.length > 0 ? radios[0].value : null;
+}
+
+// Helper untuk reset form data sosial
+function resetDataSosialForm() {
+  // Reset radio buttons
+  document.querySelectorAll('input[type="radio"]').forEach(radio => {
+    radio.checked = false;
+  });
+  
+  // Reset selects
+  document.querySelectorAll('select').forEach(select => {
+    select.value = '';
+  });
+  
+  // Reset checkboxes
+  document.querySelectorAll('.disabilitas-option').forEach(checkbox => {
+    checkbox.checked = false;
+  });
+  
+  // Hide status message
+  document.getElementById('dataSosialStatus').classList.add('hidden');
+}
+
+// ==============================================
+// STATISTIK
+// ==============================================
+
+// Memuat data statistik
+function loadStatistics() {
+  // Tampilkan loading di semua chart area
+  showLoadingInCharts();
+  
+  // Panggil fungsi server untuk mendapatkan statistik
+  google.script.run
+    .withSuccessHandler(function(stats) {
+      // Update statistik dasar
+      document.getElementById('total-anggota').textContent = stats.total;
+      
+      // Gender stats
+      const lakiCount = stats.byGender['LAKI-LAKI'] || stats.byGender['LAKI'] || 0;
+      const perempuanCount = stats.byGender['PEREMPUAN'] || 0;
+      
+      document.getElementById('total-laki').textContent = lakiCount;
+      document.getElementById('total-perempuan').textContent = perempuanCount;
+      
+      // District count
+      const districtCount = Object.keys(stats.byDistrict).length;
+      document.getElementById('total-kecamatan').textContent = districtCount;
+      
+      // Create or update charts
+      createOrUpdateCharts(stats);
+    })
+    .withFailureHandler(function(error) {
+      showToast('Gagal memuat statistik: ' + error.message, 'error');
+      hideLoadingInCharts();
+    })
+    .getStatistics();
+}
+
+// Menampilkan loading pada area chart
+function showLoadingInCharts() {
+  const chartContainers = document.querySelectorAll('#stats canvas');
+  chartContainers.forEach(container => {
+    container.style.opacity = '0.5';
+  });
+}
+
+// Menyembunyikan loading pada area chart
+function hideLoadingInCharts() {
+  const chartContainers = document.querySelectorAll('#stats canvas');
+  chartContainers.forEach(container => {
+    container.style.opacity = '1';
+  });
+}
+
+// Membuat atau memperbarui chart
+function createOrUpdateCharts(stats) {
+  // Destroy existing charts
+  for (let chartKey in appData.charts) {
+    if (appData.charts[chartKey] !== null) {
+      appData.charts[chartKey].destroy();
+      appData.charts[chartKey] = null;
+    }
+  }
+  
+  // Create marriage chart
+  const marriageCtx = document.getElementById('marriageChart').getContext('2d');
+  const marriageLabels = Object.keys(stats.byMarriage);
+  const marriageData = marriageLabels.map(key => stats.byMarriage[key]);
+  
+  appData.charts.marriage = new Chart(marriageCtx, {
+    type: 'pie',
+    data: {
+      labels: marriageLabels,
+      datasets: [{
+        data: marriageData,
+        backgroundColor: [
+          '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'right',
+        },
+        title: {
+          display: true,
+          text: 'Status Perkawinan'
+        }
+      }
+    }
+  });
+  
+  // Create religion chart
+  const religionCtx = document.getElementById('religionChart').getContext('2d');
+  const religionLabels = Object.keys(stats.byReligion);
+  const religionData = religionLabels.map(key => stats.byReligion[key]);
+  
+  appData.charts.religion = new Chart(religionCtx, {
+    type: 'pie',
+    data: {
+      labels: religionLabels,
+      datasets: [{
+        data: religionData,
+        backgroundColor: [
+          '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'right',
+        },
+        title: {
+          display: true,
+          text: 'Agama'
+        }
+      }
+    }
+  });
+  
+  // Create occupation chart (top 5)
+  const occupationCtx = document.getElementById('occupationChart').getContext('2d');
+  // Sort by count and get top 5
+  const sortedOccupations = Object.entries(stats.byOccupation)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  
+  const occupationLabels = sortedOccupations.map(entry => entry[0]);
+  const occupationData = sortedOccupations.map(entry => entry[1]);
+  
+  appData.charts.occupation = new Chart(occupationCtx, {
+    type: 'bar',
+    data: {
+      labels: occupationLabels,
+      datasets: [{
+        label: 'Jumlah',
+        data: occupationData,
+        backgroundColor: '#3b82f6',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false
+        },
+        title: {
+          display: true,
+          text: 'Pekerjaan (Top 5)'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            precision: 0
+          }
+        }
+      }
+    }
+  });
+  
+  // Create district chart (top 5)
+  const districtCtx = document.getElementById('districtChart').getContext('2d');
+  // Sort by count and get top 5
+  const sortedDistricts = Object.entries(stats.byDistrict)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  
+  const districtLabels = sortedDistricts.map(entry => entry[0]);
+  const districtData = sortedDistricts.map(entry => entry[1]);
+  
+  appData.charts.district = new Chart(districtCtx, {
+    type: 'bar',
+    data: {
+      labels: districtLabels,
+      datasets: [{
+        label: 'Jumlah',
+        data: districtData,
+        backgroundColor: '#10b981',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false
+        },
+        title: {
+          display: true,
+          text: 'Kecamatan (Top 5)'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            precision: 0
+          }
+        }
+      }
+    }
+  });
+  
+  // Tampilkan semua chart
+  hideLoadingInCharts();
+}
+
+// ==============================================
+// PENCARIAN
+// ==============================================
+
+// Melakukan pencarian data Kartu Keluarga
+function searchData() {
+  const query = document.getElementById('searchInput').value.trim();
+  
+  if (!query) {
+    showToast('Masukkan Nomor KK, NIK, atau nama untuk mencari', 'error');
+    return;
+  }
+  
+  if (query.length < 3) {
+    showToast('Masukkan minimal 3 karakter untuk mencari', 'error');
+    return;
+  }
+  
+  // Tampilkan loading
+  document.getElementById('searchBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mencari...';
+  document.getElementById('searchBtn').disabled = true;
+  
+  // Panggil fungsi server untuk mencari data
+  google.script.run
+    .withSuccessHandler(function(results) {
+      // Tampilkan container hasil pencarian
+      document.getElementById('searchResultsContainer').classList.remove('hidden');
+      
+      // Kembalikan tombol ke keadaan normal
+      document.getElementById('searchBtn').innerHTML = '<i class="fas fa-search"></i> Cari';
+      document.getElementById('searchBtn').disabled = false;
+      
+      // Update jumlah hasil
+      document.getElementById('resultCount').textContent = results.length + ' hasil';
+      
+      if (results.length > 0) {
+        // Tampilkan hasil dalam tabel
+        document.getElementById('searchResults').innerHTML = '';
+        document.getElementById('noResults').classList.add('hidden');
+        
+        results.forEach(function(item) {
+          const row = document.createElement('tr');
+          
+          // Format tanggal
+          const timestamp = new Date(item['Timestamp']);
+          const formattedDate = timestamp.toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+          
+          // Tentukan NIK dan Nama berdasarkan source (master atau anggota)
+          const nomorKK = item['Nomor KK'] || '-';
+          const nik = item['NIK'] || item['NIK Kepala Keluarga'] || '-';
+          const nama = item['Nama'] || item['Nama Kepala Keluarga'] || '-';
+          const alamat = item['Alamat'] || '-';
+          const detailId = item.source === 'master' ? nomorKK : nik;
+          
+          row.innerHTML = `
+            <td class="py-2 px-4 border-b">${nomorKK}</td>
+            <td class="py-2 px-4 border-b">${nik}</td>
+            <td class="py-2 px-4 border-b">${nama}</td>
+            <td class="py-2 px-4 border-b">${alamat}</td>
+            <td class="py-2 px-4 border-b">
+              <button onclick="viewDetail('${detailId}', '${item.source}')" class="bg-blue-500 hover:bg-blue-600 text-white py-1 px-2 rounded text-xs">
+                <i class="fas fa-eye"></i> Detail
+              </button>
+            </td>
+          `;
+          
+          document.getElementById('searchResults').appendChild(row);
+        });
+      } else {
+        // Tampilkan pesan tidak ada hasil
+        document.getElementById('noResults').classList.remove('hidden');
+      }
+    })
+    .withFailureHandler(function(error) {
+      showToast('Error: ' + error.message, 'error');
+      document.getElementById('searchBtn').innerHTML = '<i class="fas fa-search"></i> Cari';
+      document.getElementById('searchBtn').disabled = false;
+    })
+    .searchKK(query);
+}
+
+// Menampilkan detail Kartu Keluarga
+function viewDetail(id, source) {
+  // ToDo: Implementasi fungsi untuk menampilkan detail Kartu Keluarga dalam modal
+  const message = source === 'master' ? 
+    'Detail Kartu Keluarga dengan nomor: ' + id : 
+    'Detail anggota keluarga dengan NIK: ' + id;
+  
+  showToast(message + ' - Fitur detail akan segera tersedia', 'info');
+}
+
+// ==============================================
+// UTILITAS
+// ==============================================
+
+// Menampilkan toast notification
+function showToast(message, type = 'info') {
+  // Hapus toast sebelumnya jika ada
+  const existingToast = document.querySelector('.toast');
+  if (existingToast) {
+    existingToast.remove();
+  }
+  
+  // Buat elemen toast baru
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  // Tentukan ikon berdasarkan tipe
+  let icon = '';
+  switch (type) {
+    case 'success':
+      icon = '<i class="fas fa-check-circle"></i>';
+      break;
+    case 'error':
+      icon = '<i class="fas fa-exclamation-circle"></i>';
+      break;
+    case 'info':
+    default:
+      icon = '<i class="fas fa-info-circle"></i>';
+      break;
+  }
+  
+  // Set konten toast
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <div class="toast-message">${message}</div>
+    <div class="toast-close" onclick="this.parentElement.remove()">&times;</div>
+  `;
+  
+  // Tambahkan toast ke body
+  document.body.appendChild(toast);
+  
+  // Animasi masuk
+  setTimeout(() => {
+    toast.classList.add('show');
+  }, 10);
+  
+  // Hapus toast setelah 5 detik
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  }, 5000);
+}
+
+// Setup semua event button
+function setupButtons() {
+  // Tombol untuk scan baru
+  document.getElementById('newScanBtn').addEventListener('click', function() {
+    resetUploadArea();
+    document.getElementById('dropZone').style.display = 'block';
+    document.getElementById('resultContainer').classList.add('hidden');
+  });
+  
+  // Tombol refresh statistik
+  document.getElementById('refreshStatsBtn').addEventListener('click', function() {
+    loadStatistics();
+  });
+  
+  // Tombol pencarian
+  document.getElementById('searchBtn').addEventListener('click', function() {
+    searchData();
+  });
+  
+  // Input pencarian (enter key)
+  document.getElementById('searchInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+      searchData();
+    }
+  });
+  
+  // Tombol simpan pengaturan
+  document.getElementById('saveSettingsBtn').addEventListener('click', function() {
+    saveSpreadsheetId();
+  });
+  
+  // Tombol simpan API URL
+  document.getElementById('saveApiBtn').addEventListener('click', function() {
+    saveApiUrl();
+  });
+  
+  // Tombol simpan data sosial
+  document.getElementById('saveDataSosialBtn').addEventListener('click', function() {
+    saveDataSosial();
+  });
+}
+</script>
